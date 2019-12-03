@@ -57,7 +57,7 @@ library developed by [Sreekumar Thaithara Balan](https://github.com/tbs1980),
 [Mark Sauder](https://github.com/mcsauder), and Matt Beall.
 
 To compute integration of a function, first define a functor derived from
-the `Func` class (under the namespace `Numer`):
+the `Numer::Func` class, whose definition is:
 
 ```cpp
 class Func
@@ -91,10 +91,9 @@ inline double integrate(
 )
 ```
 
-
 See the [README](https://github.com/yixuan/RcppNumerical) page for the
-explanation of each argument. Below shows an example that calculates the 
-integral of 
+explanation of each argument. Below shows an example that calculates the
+integral of
 
 $$f(x) = \frac{1}{(x+1) \sqrt{x}}$$
 
@@ -130,7 +129,7 @@ public:
 };
 
 // [[Rcpp::export]]
-double integral(double a, double b)
+double integral_rcpp(double a, double b)
 {
     integrand f;
     double err_est;
@@ -142,27 +141,28 @@ double integral(double a, double b)
 }
 ```
 
-Calculating the integral for fixed $$a=0$$ and increasing $$b$$ we get:
+Calculating the integral for fixed $a=0$ and increasing $b$ we get:
 
 ```{r}
 b <- 10^(1:10)
-Fab <- sapply(b, integral, a = 0)
+Fab <- sapply(b, integral_rcpp, a = 0)
 ggplot2::qplot(b, Fab, geom = "line", log = "x", xlab = "b", ylab = "F(0,b)")
 ```
 
 So it seems to be converging nicely, but eventually breaks down here as well:
 
 ```{r}
-tryCatch(integral(0, 1e19), error=print)
+tryCatch(integral_rcpp(0, 1e19), error = print)
 ```
 
-Until recently it was not possible to explicitly use `Inf` as upper bound with **RcppNumerical**. A recent pull request changed that for the development version, though. The basic idea for handling integration with infinite bounds is to use varaible substitution to map the integral to a finite range. In the case where both limits are infinite, we use $$x = (1-t)/t$$ resulting in
+Until recently it was not possible to explicitly use `Inf` as upper bound with **RcppNumerical**, but since version 0.4-0 this feature has been added.
+The basic idea for handling integration with infinite bounds is to use varaible substitution to map the integral to a finite range. In the case where both limits are infinite, we use $x = (1-t)/t$, resulting in
 
 $$
-\int_{-\infty}^{\infty} \mathrm{d}x f(x) = \int_0^1 \mathrm{d}t \frac{f((1-t)/t) + f(-(1-t)/t)}{t^2}
+\int_{-\infty}^{\infty} \mathrm{d}x f(x) = \int_0^1 \mathrm{d}t \frac{f((1-t)/t) + f(-(1-t)/t)}{t^2}.
 $$
 
-If only one of the limits is infinite, we use the substitutions $$x = a + (1-t)/t$$ and $$x = b - (1-t)/t$$ resulting in
+If only one of the limits is infinite, we use the substitutions $x = a + (1-t)/t$ and $x = b - (1-t)/t$, resulting in
 
 $$
 \int_{a}^{\infty} \mathrm{d}x f(x) = \int_0^1 \mathrm{d}t \frac{f(a+(1-t)/t)}{t^2}
@@ -171,55 +171,15 @@ $$
 and 
 
 $$
-\int_{-\infty}^{b} \mathrm{d}x f(x) = \int_0^1 \mathrm{d}t \frac{f(b-(1-t)/t)}{t^2}
+\int_{-\infty}^{b} \mathrm{d}x f(x) = \int_0^1 \mathrm{d}t \frac{f(b-(1-t)/t)}{t^2},
 $$
 
-These variable substitutions are implemented in a templated functor that uses the original functor as template argument:
-
-```cpp
-template<class T>
-class transform_infinite: public Func
-{
-private:
-    T func;
-    double lower;
-    double upper;
-public:
-    transform_infinite(T _func, double _lower, double _upper) :
-    func(_func), lower(_lower), upper(_upper) {}
-
-    double operator() (const double& t) const
-    {
-        double x = (1 - t) / t;
-        bool upper_finite = (upper <  std::numeric_limits<double>::infinity());
-        bool lower_finite = (lower > -std::numeric_limits<double>::infinity());
-        if (upper_finite && lower_finite)
-            Rcpp::stop("At least on limit must be infinite.");
-        else if (lower_finite)
-            return func(lower + x) / pow(t, 2);
-        else if (upper_finite)
-            return func(upper - x) / pow(t, 2);
-        else
-            return (func(x) + func(-x)) / pow(t, 2);
-    }
-};
-
-```
-
-This templated functor can than be used to convert the original functor, e.g.:
-
-```cpp
-integrand f;
-transform_infinite<integrand> g(f, upper, lower);
-double err_est;
-int err_code;
-double value = integrate(g, 0.0, 1.0, err_est, err_code);
-```
-
-However, one does not have to deal with this directly, since `Numer::integrate` handles this already:
+respectively. These variable substitutions are implemented implicitly, so one does not have to deal with
+them directly. `Numer::integrate` automatically detects whether any of the limits are
+infinite, and the corresponding substitutions will be applied:
 
 ```{r}
-integral(0, Inf)
+integral_rcpp(0, Inf)
 ```
 
 ### Multi-dimensional
@@ -229,7 +189,7 @@ Multi-dimensional integration in **RcppNumerical** is done by the
 [Thomas Hahn](http://wwwth.mpp.mpg.de/members/hahn/).
 
 To calculate the integration of a multivariate function, one needs to define
-a functor that inherits from the `MFunc` class:
+a functor that inherits from the `Numer::MFunc` class:
 
 ```cpp
 class MFunc
